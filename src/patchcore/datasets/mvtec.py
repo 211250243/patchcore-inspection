@@ -119,6 +119,22 @@ class MVTecDataset(torch.utils.data.Dataset):
         for classname in self.classnames_to_use:
             classpath = os.path.join(self.source, classname, self.split.value)
             maskpath = os.path.join(self.source, classname, "ground_truth")
+            
+            # 检查目录是否存在
+            if not os.path.exists(classpath):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"目录不存在: {classpath}. "
+                    f"{'跳过训练' if self.split == DatasetSplit.TRAIN else '返回空测试集'}"
+                )
+                # 如果是测试集不存在，返回空数据
+                if self.split == DatasetSplit.TEST:
+                    # 创建空的数据结构
+                    imgpaths_per_class[classname] = {"good": []}
+                    maskpaths_per_class[classname] = {"good": None}
+                continue
+            
             anomaly_types = os.listdir(classpath)
 
             imgpaths_per_class[classname] = {}
@@ -144,13 +160,20 @@ class MVTecDataset(torch.utils.data.Dataset):
                         ][anomaly][train_val_split_idx:]
 
                 if self.split == DatasetSplit.TEST and anomaly != "good":
-                    anomaly_mask_path = os.path.join(maskpath, anomaly)
-                    anomaly_mask_files = sorted(os.listdir(anomaly_mask_path))
-                    maskpaths_per_class[classname][anomaly] = [
-                        os.path.join(anomaly_mask_path, x) for x in anomaly_mask_files
-                    ]
+                    if os.path.exists(maskpath):
+                        anomaly_mask_path = os.path.join(maskpath, anomaly)
+                        if os.path.exists(anomaly_mask_path):
+                            anomaly_mask_files = sorted(os.listdir(anomaly_mask_path))
+                            maskpaths_per_class[classname][anomaly] = [
+                                os.path.join(anomaly_mask_path, x) for x in anomaly_mask_files
+                            ]
+                        else:
+                            maskpaths_per_class[classname][anomaly] = None
+                    else:
+                        maskpaths_per_class[classname][anomaly] = None
                 else:
-                    maskpaths_per_class[classname]["good"] = None
+                    if anomaly not in maskpaths_per_class[classname]:
+                        maskpaths_per_class[classname][anomaly] = None
 
         # Unrolls the data dictionary to an easy-to-iterate list.
         data_to_iterate = []
@@ -158,7 +181,7 @@ class MVTecDataset(torch.utils.data.Dataset):
             for anomaly in sorted(imgpaths_per_class[classname].keys()):
                 for i, image_path in enumerate(imgpaths_per_class[classname][anomaly]):
                     data_tuple = [classname, anomaly, image_path]
-                    if self.split == DatasetSplit.TEST and anomaly != "good":
+                    if self.split == DatasetSplit.TEST and anomaly != "good" and classname in maskpaths_per_class and anomaly in maskpaths_per_class[classname] and maskpaths_per_class[classname][anomaly] is not None:
                         data_tuple.append(maskpaths_per_class[classname][anomaly][i])
                     else:
                         data_tuple.append(None)

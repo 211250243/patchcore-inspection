@@ -36,29 +36,7 @@ def compute_pixelwise_retrieval_metrics(anomaly_segmentations, ground_truth_mask
         ground_truth_masks: [list of np.arrays or np.array] [NxHxW] Contains
                             predefined ground truth segmentation masks
     """
-    # 处理空列表情况
-    if isinstance(anomaly_segmentations, list) and len(anomaly_segmentations) == 0:
-        # 当没有异常样本时返回默认评估指标
-        return {
-            "auroc": 0.5,
-            "fpr": np.array([0, 1]),
-            "tpr": np.array([0, 1]),
-            "optimal_threshold": 0.5,
-            "optimal_fpr": 0.0,
-            "optimal_fnr": 0.0,
-        }
-    
-    if isinstance(ground_truth_masks, list) and len(ground_truth_masks) == 0:
-        # 当没有异常样本时返回默认评估指标
-        return {
-            "auroc": 0.5,
-            "fpr": np.array([0, 1]),
-            "tpr": np.array([0, 1]),
-            "optimal_threshold": 0.5,
-            "optimal_fpr": 0.0,
-            "optimal_fnr": 0.0,
-        }
-    
+
     if isinstance(anomaly_segmentations, list):
         anomaly_segmentations = np.stack(anomaly_segmentations)
     if isinstance(ground_truth_masks, list):

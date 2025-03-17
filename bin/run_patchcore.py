@@ -96,6 +96,35 @@ def run(
                 torch.cuda.empty_cache()
                 PatchCore.fit(dataloaders["training"])
 
+            # 检查测试数据集是否为空
+            if len(dataloaders["testing"].dataset) == 0:
+                LOGGER.info("测试集为空，跳过评估阶段。使用默认值。")
+                # 使用默认评估结果
+                result_collect.append(
+                    {
+                        "dataset_name": dataset_name,
+                        "instance_auroc": 0.5,  # 默认AUROC为0.5（随机猜测）
+                        "full_pixel_auroc": 0.5,
+                        "anomaly_pixel_auroc": 0.5,
+                    }
+                )
+                
+                # 依然保存训练好的模型
+                if save_patchcore_model:
+                    patchcore_save_path = os.path.join(
+                        run_save_path, "models", dataset_name
+                    )
+                    os.makedirs(patchcore_save_path, exist_ok=True)
+                    for i, PatchCore in enumerate(PatchCore_list):
+                        prepend = (
+                            "Ensemble-{}-{}_".format(i + 1, len(PatchCore_list))
+                            if len(PatchCore_list) > 1
+                            else ""
+                        )
+                        PatchCore.save_to_path(patchcore_save_path, prepend)
+                
+                continue
+
             torch.cuda.empty_cache()
             aggregator = {"scores": [], "segmentations": []}
             for i, PatchCore in enumerate(PatchCore_list):
@@ -192,18 +221,11 @@ def run(
                 if np.sum(masks_gt[i]) > 0:
                     sel_idxs.append(i)
                     
-            # 检查是否有异常样本
-            if len(sel_idxs) == 0:
-                # 如果没有异常样本，使用默认值
-                LOGGER.info("No anomaly samples found in the test set. Using default anomaly pixel AUROC value.")
-                anomaly_pixel_auroc = 0.5
-            else:
-                # 如果有异常样本，正常计算评估指标
-                pixel_scores = patchcore.metrics.compute_pixelwise_retrieval_metrics(
-                    [segmentations[i] for i in sel_idxs],
-                    [masks_gt[i] for i in sel_idxs],
-                )
-                anomaly_pixel_auroc = pixel_scores["auroc"]
+            pixel_scores = patchcore.metrics.compute_pixelwise_retrieval_metrics(
+                 [segmentations[i] for i in sel_idxs],
+                 [masks_gt[i] for i in sel_idxs],
+             )
+            anomaly_pixel_auroc = pixel_scores["auroc"]
 
             result_collect.append(
                 {
@@ -367,6 +389,12 @@ def dataset(
     def get_dataloaders(seed):
         dataloaders = []
         for subdataset in subdatasets:
+            # 检查训练集目录是否存在
+            train_path = os.path.join(data_path, subdataset, dataset_library.DatasetSplit.TRAIN.value)
+            if not os.path.exists(train_path):
+                LOGGER.warning(f"训练集目录不存在: {train_path}, 跳过此数据集: {subdataset}")
+                continue
+                
             train_dataset = dataset_library.__dict__[dataset_info[1]](
                 data_path,
                 classname=subdataset,
@@ -378,25 +406,9 @@ def dataset(
                 augment=augment,
             )
 
-            test_dataset = dataset_library.__dict__[dataset_info[1]](
-                data_path,
-                classname=subdataset,
-                resize=resize,
-                imagesize=imagesize,
-                split=dataset_library.DatasetSplit.TEST,
-                seed=seed,
-            )
-
+            # 创建训练数据加载器
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
-                batch_size=batch_size,
-                shuffle=False,
-                num_workers=num_workers,
-                pin_memory=True,
-            )
-
-            test_dataloader = torch.utils.data.DataLoader(
-                test_dataset,
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
@@ -406,6 +418,50 @@ def dataset(
             train_dataloader.name = name
             if subdataset is not None:
                 train_dataloader.name += "_" + subdataset
+
+            # 检查测试集目录是否存在
+            test_path = os.path.join(data_path, subdataset, dataset_library.DatasetSplit.TEST.value)
+            if not os.path.exists(test_path):
+                LOGGER.warning(
+                    f"测试集目录不存在: {test_path}. "
+                    "将仅进行训练，不进行评估. "
+                    "创建一个空的测试数据加载器."
+                )
+                # 创建一个空的测试数据集
+                dummy_test_dataset = dataset_library.__dict__[dataset_info[1]](
+                    data_path,
+                    classname=subdataset,
+                    resize=resize,
+                    imagesize=imagesize,
+                    split=dataset_library.DatasetSplit.TEST,
+                    seed=seed,
+                )
+                # 使用空的测试数据集创建数据加载器
+                test_dataloader = torch.utils.data.DataLoader(
+                    dummy_test_dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    pin_memory=True,
+                )
+            else:
+                # 正常加载测试数据集
+                test_dataset = dataset_library.__dict__[dataset_info[1]](
+                    data_path,
+                    classname=subdataset,
+                    resize=resize,
+                    imagesize=imagesize,
+                    split=dataset_library.DatasetSplit.TEST,
+                    seed=seed,
+                )
+                # 创建测试数据加载器
+                test_dataloader = torch.utils.data.DataLoader(
+                    test_dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    pin_memory=True,
+                )
 
             if train_val_split < 1:
                 val_dataset = dataset_library.__dict__[dataset_info[1]](
@@ -427,6 +483,7 @@ def dataset(
                 )
             else:
                 val_dataloader = None
+                
             dataloader_dict = {
                 "training": train_dataloader,
                 "validation": val_dataloader,
