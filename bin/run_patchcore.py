@@ -191,11 +191,19 @@ def run(
             for i in range(len(masks_gt)):
                 if np.sum(masks_gt[i]) > 0:
                     sel_idxs.append(i)
-            pixel_scores = patchcore.metrics.compute_pixelwise_retrieval_metrics(
-                [segmentations[i] for i in sel_idxs],
-                [masks_gt[i] for i in sel_idxs],
-            )
-            anomaly_pixel_auroc = pixel_scores["auroc"]
+                    
+            # 检查是否有异常样本
+            if len(sel_idxs) == 0:
+                # 如果没有异常样本，使用默认值
+                LOGGER.info("No anomaly samples found in the test set. Using default anomaly pixel AUROC value.")
+                anomaly_pixel_auroc = 0.5
+            else:
+                # 如果有异常样本，正常计算评估指标
+                pixel_scores = patchcore.metrics.compute_pixelwise_retrieval_metrics(
+                    [segmentations[i] for i in sel_idxs],
+                    [masks_gt[i] for i in sel_idxs],
+                )
+                anomaly_pixel_auroc = pixel_scores["auroc"]
 
             result_collect.append(
                 {
