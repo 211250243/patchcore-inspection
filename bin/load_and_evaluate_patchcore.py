@@ -120,6 +120,8 @@ def run(methods, results_path, gpu, seed, save_segmentation_images):
                 ]
 
                 def image_transform(image):
+                    dataloaders["testing"].dataset.transform_std = [0.229, 0.224, 0.225]
+                    dataloaders["testing"].dataset.transform_mean = [0.485, 0.456, 0.406]
                     in_std = np.array(
                         dataloaders["testing"].dataset.transform_std
                     ).reshape(-1, 1, 1)
